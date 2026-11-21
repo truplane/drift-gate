@@ -1,0 +1,13 @@
+services:
+  drift-gate-selftest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: drift-gate-selftest
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        drift-gate evaluate --plan examples/plan_clean.json --policies policies --format markdown &&
+        (drift-gate evaluate --plan examples/plan_violation.json --policies policies --format terminal; test $$? -eq 2) &&
+        (drift-gate evaluate --plan examples/plan_drift.json --policies policies --format terminal; test $$? -eq 3) &&
+        echo "ALL DRIFT-GATE SMOKE CHECKS PASSED"

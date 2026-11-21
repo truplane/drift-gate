@@ -1,0 +1,59 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.8.0",
+  "resource_changes": [
+    {
+      "address": "aws_s3_bucket.analytics_archive",
+      "type": "aws_s3_bucket",
+      "name": "analytics_archive",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "bucket": "corp-analytics-archive-prod",
+          "acl": "private",
+          "tags": {
+            "environment": "prod",
+            "team": "data-platform"
+          }
+        }
+      }
+    },
+    {
+      "address": "aws_s3_bucket_public_access_block.analytics_archive",
+      "type": "aws_s3_bucket_public_access_block",
+      "name": "analytics_archive",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "block_public_acls": true,
+          "block_public_policy": true,
+          "ignore_public_acls": true,
+          "restrict_public_buckets": true
+        }
+      }
+    },
+    {
+      "address": "aws_db_instance.feature_store",
+      "type": "aws_db_instance",
+      "name": "feature_store",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "identifier": "feature-store-db",
+          "instance_class": "db.r6g.large",
+          "storage_encrypted": true,
+          "tags": {
+            "environment": "prod"
+          }
+        }
+      }
+    }
+  ],
+  "resource_drift": []
+}

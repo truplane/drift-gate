@@ -1,0 +1,23 @@
+# Drift Gate Default Policy Configuration
+max_destroys: 3
+
+enabled_builtin_rules:
+  - no_public_storage
+  - no_open_admin_ingress
+  - require_encrypted_databases
+  - protect_production_deletes
+
+custom_rules:
+  - id: require_s3_versioning_or_private_acl
+    resource_types:
+      - aws_s3_bucket
+    actions:
+      - create
+      - update
+    attribute: acl
+    forbidden_values:
+      - public-read
+      - public-read-write
+    severity: critical
+    message: "S3 buckets must not configure public ACLs."
+    remediation: "Remove public ACL and enforce bucket public access blocks."

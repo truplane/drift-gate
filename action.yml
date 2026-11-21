@@ -1,0 +1,57 @@
+name: "Drift Gate IaC Policy & Drift Check"
+description: "Evaluate OpenTofu/Terraform JSON plans for out-of-band drift, security policies, and blast-radius limits."
+branding:
+  icon: "shield"
+  color: "green"
+
+inputs:
+  plan:
+    description: "Path to `tofu show -json <plan>` or `terraform show -json <plan>` file."
+    required: true
+  policies:
+    description: "Path to policies directory or YAML file."
+    required: false
+    default: "policies"
+  max_destroys:
+    description: "Maximum allowed destroy/replace operations."
+    required: false
+    default: "3"
+  report_path:
+    description: "Output path for Markdown PR summary."
+    required: false
+    default: "drift-gate-report.md"
+
+outputs:
+  exit_code:
+    description: "Drift Gate exit code (0=pass, 2=policy violation, 3=drift detected)."
+    value: ${{ steps.evaluate.outputs.exit_code }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install drift-gate
+      shell: bash
+      run: pip install --no-cache-dir "${{ github.action_path }}"
+
+    - name: Evaluate IaC Plan
+      id: evaluate
+      shell: bash
+      run: |
+        set +e
+        drift-gate evaluate \
+          --plan "${{ inputs.plan }}" \
+          --policies "${{ inputs.policies }}" \
+          --max-destroys "${{ inputs.max_destroys }}" \
+          --format markdown \
+          --out "${{ inputs.report_path }}"
+        CODE=$?
+        echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
+        if [ -f "${{ inputs.report_path }}" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+          cat "${{ inputs.report_path }}" >> "$GITHUB_STEP_SUMMARY"
+        fi
+        exit "$CODE"

@@ -1,0 +1,72 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.8.0",
+  "resource_changes": [
+    {
+      "address": "aws_s3_bucket.raw_exports",
+      "type": "aws_s3_bucket",
+      "name": "raw_exports",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "bucket": "corp-raw-exports-public",
+          "acl": "public-read"
+        }
+      }
+    },
+    {
+      "address": "aws_security_group.bastion",
+      "type": "aws_security_group",
+      "name": "bastion",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "name": "bastion-sg",
+          "ingress": [
+            {
+              "from_port": 22,
+              "to_port": 22,
+              "protocol": "tcp",
+              "cidr_blocks": ["0.0.0.0/0"]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "address": "aws_db_instance.legacy_oltp",
+      "type": "aws_db_instance",
+      "name": "legacy_oltp",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "identifier": "legacy-oltp",
+          "storage_encrypted": false
+        }
+      }
+    },
+    {
+      "address": "aws_rds_cluster.core_prod_db",
+      "type": "aws_rds_cluster",
+      "name": "core_prod_db",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["delete"],
+        "before": {
+          "cluster_identifier": "core-prod-db",
+          "tags": {
+            "environment": "prod"
+          }
+        },
+        "after": null
+      }
+    }
+  ],
+  "resource_drift": []
+}
