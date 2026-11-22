@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-and-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Run pytest
+        run: pytest -v
+      - name: Build & smoke-test Docker image
+        run: |
+          docker build -t drift-gate:ci .
+          docker run --rm drift-gate:ci evaluate --plan examples/plan_clean.json --policies policies --format markdown

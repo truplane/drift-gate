@@ -143,3 +143,69 @@ def test_metrics_file_written(tmp_path: Path) -> None:
     assert metrics_file.is_file()
     prom_text = metrics_file.read_text(encoding="utf-8")
     assert "drift_gate_blast_radius_score" in prom_text
+
+
+def test_multicloud_gcp_azure_and_custom_rules() -> None:
+    plan_dict = {
+        "resource_changes": [
+            {
+                "address": "google_storage_bucket_iam_binding.public_logs",
+                "type": "google_storage_bucket_iam_binding",
+                "name": "public_logs",
+                "change": {
+                    "actions": ["create"],
+                    "before": None,
+                    "after": {"bucket": "logs", "role": "roles/storage.objectViewer", "members": ["allUsers"]},
+                },
+            },
+            {
+                "address": "google_compute_firewall.allow_ssh",
+                "type": "google_compute_firewall",
+                "name": "allow_ssh",
+                "change": {
+                    "actions": ["create"],
+                    "before": None,
+                    "after": {
+                        "source_ranges": ["0.0.0.0/0"],
+                        "allow": [{"protocol": "tcp", "ports": ["22"]}],
+                    },
+                },
+            },
+            {
+                "address": "azurerm_storage_container.public_blob",
+                "type": "azurerm_storage_container",
+                "name": "public_blob",
+                "change": {
+                    "actions": ["create"],
+                    "before": None,
+                    "after": {"name": "exports", "container_access_type": "blob"},
+                },
+            },
+            {
+                "address": "aws_s3_bucket_public_access_block.disabled_pab",
+                "type": "aws_s3_bucket_public_access_block",
+                "name": "disabled_pab",
+                "change": {
+                    "actions": ["create"],
+                    "before": None,
+                    "after": {
+                        "block_public_acls": False,
+                        "block_public_policy": True,
+                        "ignore_public_acls": True,
+                        "restrict_public_buckets": True,
+                    },
+                },
+            },
+        ],
+        "resource_drift": [],
+    }
+    parsed = parse_plan_dict(plan_dict)
+    violations, cfg, engines = evaluate_policies(parsed, POLICIES)
+    report = evaluate_plan(parsed, violations, max_destroys=cfg.max_destroys, engines_used=engines)
+    assert report.exit_code == 2
+    by_addr = {v.address: v.rule_id for v in report.violations}
+    assert by_addr["google_storage_bucket_iam_binding.public_logs"] == "no_public_storage"
+    assert by_addr["google_compute_firewall.allow_ssh"] == "no_open_admin_ingress"
+    assert by_addr["azurerm_storage_container.public_blob"] == "no_public_storage"
+    assert by_addr["aws_s3_bucket_public_access_block.disabled_pab"] == "no_public_storage"
+
