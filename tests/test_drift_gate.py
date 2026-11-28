@@ -209,3 +209,82 @@ def test_multicloud_gcp_azure_and_custom_rules() -> None:
     assert by_addr["azurerm_storage_container.public_blob"] == "no_public_storage"
     assert by_addr["aws_s3_bucket_public_access_block.disabled_pab"] == "no_public_storage"
 
+
+def test_v3_sku_aware_pricing_truplane_budget_gate_and_watch(tmp_path: Path) -> None:
+    from drift_gate.pricing_client import SKUPricingResolver
+
+    sku_plan = tmp_path / "sku_plan.json"
+    sku_plan.write_text(
+        json.dumps(
+            {
+                "resource_changes": [
+                    {
+                        "address": "aws_db_instance.heavy_analytics",
+                        "type": "aws_db_instance",
+                        "name": "heavy_analytics",
+                        "change": {
+                            "actions": ["create"],
+                            "before": None,
+                            "after": {
+                                "instance_class": "db.r6g.4xlarge",
+                                "storage_encrypted": True,
+                            },
+                        },
+                    }
+                ],
+                "resource_drift": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    truplane_cfg = tmp_path / "truplane.yaml"
+    truplane_cfg.write_text(
+        """
+governance:
+  max_monthly_spend_delta_usd: 500.0
+drift_gate:
+  max_destroys: 3
+""",
+        encoding="utf-8",
+    )
+
+    resolver = SKUPricingResolver()
+    assert resolver.monthly_cost("aws_db_instance", "db.r6g.4xlarge") == 1512.0
+    assert resolver.monthly_cost("aws_db_instance", "db.t3.micro") == 14.5
+
+    runner = CliRunner()
+    res = runner.invoke(
+        cli_app,
+        [
+            "evaluate",
+            "--plan",
+            str(sku_plan),
+            "--policies",
+            str(POLICIES),
+            "--config",
+            str(truplane_cfg),
+            "--format",
+            "json",
+        ],
+    )
+    assert res.exit_code == 2
+    payload = json.loads(res.stdout)
+    assert payload["estimated_monthly_cost_delta_usd"] == 1512.0
+    assert any(v["rule_id"] == "governance_spend_delta_exceeded" for v in payload["violations"])
+
+    watch_res = runner.invoke(
+        cli_app,
+        [
+            "watch",
+            "--plan",
+            str(EXAMPLES / "plan_drift.json"),
+            "--policies",
+            str(POLICIES),
+            "--once",
+        ],
+    )
+    assert watch_res.exit_code == 3
+    assert "DRIFT_DETECTED" in watch_res.stdout
+
+

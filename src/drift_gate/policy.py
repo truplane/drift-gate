@@ -29,9 +29,11 @@ class PolicyViolation(BaseModel):
 
 
 class PolicyConfig(BaseModel):
-    """Configurable policy settings loaded from policies/*.yaml."""
+    """Configurable policy settings loaded from policies/*.yaml or truplane.yaml."""
 
     max_destroys: int = 3
+    max_monthly_spend_delta_usd: float | None = None
+    focus_ledger_url: str | None = None
     enabled_builtin_rules: list[str] = Field(
         default_factory=lambda: [
             "no_public_storage",
@@ -41,6 +43,26 @@ class PolicyConfig(BaseModel):
         ]
     )
     custom_rules: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def load_truplane_governance(config_path: Path | str | None) -> dict[str, Any]:
+    """Load drift_gate and governance settings from a unified truplane.yaml file."""
+    if config_path is None:
+        return {}
+    p = Path(config_path)
+    if not p.is_file():
+        raise FileNotFoundError(f"Config file not found: {p}")
+    raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    if not isinstance(raw, dict):
+        return {}
+    gov = dict(raw.get("governance") or {})
+    dg = dict(raw.get("drift_gate") or {})
+    merged: dict[str, Any] = {**dg}
+    if "focus_ledger_url" in gov and "focus_ledger_url" not in merged:
+        merged["focus_ledger_url"] = gov["focus_ledger_url"]
+    if "max_monthly_spend_delta_usd" in gov and "max_monthly_spend_delta_usd" not in merged:
+        merged["max_monthly_spend_delta_usd"] = gov["max_monthly_spend_delta_usd"]
+    return merged
 
 
 def _extract_tags(attrs: dict[str, Any]) -> dict[str, str]:

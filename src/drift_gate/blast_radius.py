@@ -6,18 +6,7 @@ from pydantic import BaseModel, Field
 
 from drift_gate.parser import ParsedPlan
 from drift_gate.policy import PolicyViolation
-
-_MONTHLY_COST_HEURISTIC_USD: dict[str, float] = {
-    "aws_db_instance": 145.0,
-    "aws_rds_cluster": 290.0,
-    "aws_instance": 68.0,
-    "aws_eks_cluster": 73.0,
-    "aws_nat_gateway": 33.0,
-    "aws_lb": 22.0,
-    "aws_s3_bucket": 5.0,
-    "google_sql_database_instance": 140.0,
-    "azurerm_mssql_server": 150.0,
-}
+from drift_gate.pricing_client import SKUPricingResolver, extract_instance_sku
 
 _ACTION_WEIGHT: dict[str, int] = {
     "create": 1,
@@ -46,14 +35,27 @@ class EvaluationReport(BaseModel):
     prometheus_metrics: str = ""
 
 
-def _estimate_cost_delta(plan: ParsedPlan) -> float:
+def _estimate_cost_delta(
+    plan: ParsedPlan,
+    resolver: SKUPricingResolver | None = None,
+) -> float:
+    pricing = resolver or SKUPricingResolver()
     delta = 0.0
     for chg in plan.changes:
-        unit = _MONTHLY_COST_HEURISTIC_USD.get(chg.resource_type, 10.0)
+        sku = extract_instance_sku(chg)
+        unit = pricing.monthly_cost(chg.resource_type, sku)
         if chg.action == "create":
             delta += unit
         elif chg.action == "delete":
             delta -= unit
+        elif chg.action in ("update", "replace"):
+            before_sku = None
+            for k in ("instance_class", "instance_type", "machine_type", "vm_size", "tier"):
+                if chg.before.get(k):
+                    before_sku = str(chg.before[k])
+                    break
+            if before_sku and sku and before_sku != sku:
+                delta += unit - pricing.monthly_cost(chg.resource_type, before_sku)
     return round(delta, 2)
 
 
@@ -119,17 +121,22 @@ def evaluate_plan(
     violations: list[PolicyViolation],
     max_destroys: int,
     engines_used: list[str],
+    pricing_resolver: SKUPricingResolver | None = None,
+    max_monthly_spend_delta_usd: float | None = None,
 ) -> EvaluationReport:
     """Combine drift, policy, and blast-radius evaluations with strict exit codes.
 
     Exit codes:
       0: Clean pass (no policy violations, no blast-radius breach, no drift)
-      2: Policy violation or blast-radius destroy gate breach
+      2: Policy violation or blast-radius/spend-delta gate breach
       3: Out-of-band drift detected (with no policy violations)
     """
     counts = plan.action_counts
     destroys_total = counts.get("delete", 0) + counts.get("replace", 0)
     blast_exceeded = destroys_total > max_destroys
+
+    blast_score = _compute_blast_score(plan)
+    cost_delta = _estimate_cost_delta(plan, resolver=pricing_resolver)
 
     all_violations = list(violations)
     if blast_exceeded:
@@ -147,6 +154,21 @@ def evaluate_plan(
                 engine="blast-radius",
             )
         )
+    if max_monthly_spend_delta_usd is not None and cost_delta > max_monthly_spend_delta_usd:
+        all_violations.append(
+            PolicyViolation(
+                rule_id="governance_spend_delta_exceeded",
+                severity="high",
+                address="plan",
+                resource_type="governance",
+                message=(
+                    f"Estimated monthly spend delta ${cost_delta:+.2f}/mo exceeds "
+                    f"max_monthly_spend_delta_usd=${max_monthly_spend_delta_usd:.2f}/mo."
+                ),
+                remediation="Rightsize instance SKUs or request budget approval in truplane.yaml.",
+                engine="governance",
+            )
+        )
 
     drift_count = len(plan.drifts)
     if all_violations:
@@ -159,8 +181,6 @@ def evaluate_plan(
         exit_code = 0
         status = "PASS"
 
-    blast_score = _compute_blast_score(plan)
-    cost_delta = _estimate_cost_delta(plan)
     prom = build_prometheus_metrics(counts, drift_count, all_violations, blast_score, cost_delta)
 
     return EvaluationReport(
